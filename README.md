@@ -51,6 +51,7 @@ but the *fixes* have not been back on hardware.
 | not yet proven | what the change does |
 |---|---|
 | **The switch's own link state is reachable over the API** | Nothing in the daemon reported anything about the on-board Ethernet switch, although the kernel registers a netdev per port and knows all of it. `opt=get&type=network` now returns, for each of `node1`-`node4`, `ge0` and `ge1`: whether it is a node port or an uplink, whether the kernel has it at all, carrier, `operstate`, speed, duplex and the four byte/error counters. Read straight from `/sys/class/net`, no shelling out. The failure it exists for is a kernel where the switch driver does not probe -- the BMC stays perfectly reachable over its own interface while all four compute modules are cut off -- so every port is always listed and an absent one is `"present": false` rather than a missing entry or a 500 |
+| **The A/B firmware slots are reachable over the API** | The board takes firmware upgrades A/B -- the new image goes into the rootfs UBI volume that is not running, `nextboot` sends U-Boot at it once, and a promotion script keeps it or puts the old one back -- and nothing in the API said which volume the board booted, how big either is, whether an upgrade is waiting for the next boot, or what the promotion script decided last time. `opt=get&type=firmware_slots` now answers all four, from `/sys/class/ubi`, `fw_printenv -n nextboot` and the tail of `/mnt/overlay/postupdate.log`. The running slot is the volume with a `ubiblock` device attached, not the one called `rootfs`. Its version comes from `/etc/os-release`; **the rollback volume is not mounted, so it has a name and a size and no version** rather than a guessed one. A board with no UBI, or without `fw_printenv`, answers 200 with `"present": false` and nulls -- and `update_staged` is `null` rather than `false`, because "nothing is staged" and "the environment could not be read" are different answers. Not `type=firmware`: that name has belonged to the transfer machinery since long before this fork |
 | **`type=about` reports the board's serial number** | The 24c02 EEPROM at i2c 0x50 holds the factory serial next to the product name and the hardware revision, and the daemon already parses that header -- `board_model` and `board_revision` come out of it. `get_about` now also sends `board_serial` from the `FactorySerial` field of the same read, with the fixed-width field's NUL padding stripped and an unprogrammed EEPROM reported as `null` rather than as a string of padding. `board_model` and `board_revision` are left byte-for-byte as they were, padding included, because something may be matching on them |
 | **`power_on_time` stops resetting for nodes 2, 3 and 4 on every daemon start** | `update_power_on_times` compared the new state of a node, which `bit_iterator` yields as 0 or 1, against `activated_nodes & (1 << idx)`, which is 0 or `1 << idx`. Those agree only for node 1. For every other node "already on, staying on" looked like a transition, so `initialize_power` -- which calls `activate_slot` on every start -- rewrote their power-on stamp to the moment the daemon came up. Measured after a BMC reboot with four modules running: node 1 at 52418 s, matching its own `/proc/uptime`, and nodes 2, 3 and 4 at 172 s, the BMC's own uptime. The comparison is now shifted down. Upstream bug, from 2023; boards carrying a wrong stamp recover it at the next real power cycle of that node |
 | **The About page stops saying `Build version: vundefined`** | The web UI reads the daemon version from a key named `build_version`; `get_about` only ever sent `bmcd_version`. It now sends the same value under both names — `bmcd_version` stays, it is the documented key of the legacy API. The value is bmcd's own crate version (`2.3.7`), not the firmware release. The UI's *other* version bug, the doubled `v` in `vv2.2.0-…`, is on the UI side and is untouched here |
@@ -83,6 +84,7 @@ on the `(type, is_set)` pair. A missing `opt` or `type` is a 400, and so is a
 | `opt=get&type=` | |
 |---|---|
 | `about` | daemon version, build time, firmware version, Buildroot release |
+| `firmware_slots` | running and rollback firmware volumes, staged update, last promotion (*this fork*) |
 | `cooling` | fan devices and speeds |
 | `info` | IP addresses and storage |
 | `node_info` | per-node auxiliary info |
@@ -115,7 +117,10 @@ on the `(type, is_set)` pair. A missing `opt` or `type` is a 400, and so is a
 Three `type` values never reach that `match`, because actix guards route them
 first: `type=flash` and `type=firmware` go to the transfer machinery (`opt=get`
 is the status of a running transfer, `opt=set` starts one and returns a
-`handle`), and `POST` with `opt=set&type=node_info` takes a JSON body. The
+`handle`), and `POST` with `opt=set&type=node_info` takes a JSON body. Those
+guards matched the raw query string with `contains` until this fork made them
+compare the whole parameter value -- a `type` that merely *starts* with
+`firmware` was being swallowed by the transfer machinery. The
 transfer itself is not query-string RPC: `POST /api/bmc/upload/{handle}` streams
 the bytes and `GET /api/bmc/upload/{handle}/cancel` aborts it. Alongside those
 sit `GET /api/bmc/backup` (a tar of `/mnt/overlay/upper`), `GET /api/bmc/info`,
