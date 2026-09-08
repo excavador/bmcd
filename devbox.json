@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.3/.schema/devbox.schema.json",
+  "packages": {
+    "rustup": "latest",
+    "just": "latest",
+    "pkg-config": "latest",
+    "openssl": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    },
+    "libusb1": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    },
+    "udev": {
+      "version": "latest",
+      "outputs": ["out", "dev"]
+    }
+  },
+  "env": {
+    "RUSTUP_HOME": "$PWD/.rustup",
+    "CARGO_HOME": "$PWD/.cargo",
+    "PATH": "$PWD/.cargo/bin:$PATH",
+    "PKG_CONFIG_PATH": "$PWD/.devbox/nix/profile/default/lib/pkgconfig"
+  },
+  "shell": {
+    "init_hook": [
+      "rustup toolchain install 1.85.0 --profile minimal -c rustfmt -c clippy --no-self-update >/dev/null 2>&1 || true",
+      "rustup default 1.85.0 >/dev/null 2>&1 || true",
+      "echo 'bmcd: just check runs exactly what CI runs'"
+    ]
+  }
+}
